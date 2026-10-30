@@ -26,6 +26,7 @@ from google.genai import types as genai_types
 import frame_sampler
 import gpu_decode
 import gemini_worker
+import jev_ranker
 import hook_grounding
 import layout_picker
 import llm_backend
@@ -2063,6 +2064,10 @@ def get_viral_clips(transcript_result, video_duration):
     the expensive detail reasoning focused on the shortlist. Cuts are snapped to
     word boundaries so clips don't start/end mid-word.
     """
+    if jev_ranker.selected():
+        min_secs, max_secs = clip_duration_bounds()
+        return jev_ranker.select(transcript_result, video_duration, min_secs, max_secs)
+
     language = str(transcript_result.get('language') or 'unknown')
     if llm_backend.active():
         # Self-hosted text model: no Google key needed for this stage.
@@ -2250,9 +2255,9 @@ def get_visual_clips(video_path, video_duration, language="en"):
     print("🎥  Silent video — analyzing with Gemini vision (no transcript)...")
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        if llm_backend.active():
+        if llm_backend.active() or jev_ranker.selected():
             print("❌ This video has no usable speech, so it has to be clipped by "
-                  "watching it, and that needs Gemini (a text-only LLM server "
+                  "watching it, and that needs Gemini (the text-only provider "
                   "cannot see the footage). Add a GEMINI_API_KEY for silent videos.")
         else:
             print("❌ Error: GEMINI_API_KEY not found.")

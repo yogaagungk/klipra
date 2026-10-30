@@ -1,5 +1,6 @@
 import os
 import llm_backend
+import jev_ranker
 import re
 import sys
 import uuid
@@ -3269,7 +3270,7 @@ async def get_config():
         "jobRetentionSeconds": JOB_RETENTION_SECONDS,
         # Self-host only: tells the dashboard the Gemini key is optional
         # because the moment picker runs on an OpenAI-compatible server.
-        "localLlm": None if BILLING_ENABLED else llm_backend.describe(),
+        "localLlm": None if BILLING_ENABLED else (jev_ranker.describe() if jev_ranker.selected() else llm_backend.describe()),
     }
 
 async def _probe_youtube_quality(url: str) -> dict:
@@ -3627,7 +3628,9 @@ async def process_endpoint(
     source_end: Optional[str] = Form(None),
 ):
     api_key = await resolve_gemini(request)
-    if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+    if jev_ranker.selected() and not jev_ranker.configured():
+        raise HTTPException(status_code=400, detail="Jev is selected but JEV_API_KEY is not configured on the server.")
+    if not api_key and not ((llm_backend.active() or jev_ranker.configured()) and not BILLING_ENABLED):
         # Self-host with an OpenAI-compatible server configured needs no
         # Google key for the core pipeline: the moment picker runs there and
         # the frame-based stages degrade on their own (layout_picker returns
@@ -3739,6 +3742,9 @@ async def process_endpoint(
     # probe above already gets this right.
     cmd = [sys.executable, "-u", "main.py"] # -u for unbuffered
     env = child_env()
+    if BILLING_ENABLED:
+        env.pop("HIGHLIGHT_PROVIDER", None)
+        env.pop("JEV_API_KEY", None)
     if api_key:
         env["GEMINI_API_KEY"] = api_key # Override with key from request
     else:
